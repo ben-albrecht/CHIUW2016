@@ -4,7 +4,7 @@ use Sort;
 use Random;
 use Math;
 use List;
-use Timer;
+use Time;
 
 inline proc randomInt(const nDom) {
    var pool:[nDom] real;
@@ -26,7 +26,7 @@ inline iter randomIntPair(const nDom) {
    }
 }
 
-proc fisherYatesShuffle(const shuffleDom) { 
+proc fisherYatesShuffle(const shuffleDom) {
    //for i from n − 1 downto 1 do
    //  j ← random integer such that 0 ≤ j ≤ i
    //  exchange a[j] and a[i]
@@ -58,6 +58,15 @@ proc sample(n, r) {
    return n-pop;
 }
 
+class Bag {
+  var D : domain(int);
+  var A : [D] int;
+
+  proc this(idx) ref {
+    return A[idx];
+  }
+}
+
 record DecisionNode {
    type FEATURE;
    type LABEL;
@@ -68,7 +77,7 @@ record DecisionNode {
    var childNodeIndices:[cnDom] int; // 0 <, 1 >=
    var Label:LABEL;
    var isleaf:bool;
-   
+
    proc DecisionNode(type FEATURE, type LABEL) {
       isleaf = false;
       childNodeIndices(0) = 0;
@@ -76,11 +85,19 @@ record DecisionNode {
    }
 
    proc isLeaf() :bool {
-     return isleaf;  
+     return isleaf;
    }
 
    proc childNodeIndex(j:int):int {
       return childNodeIndices(j);
+   }
+
+   proc bagToArr(bag) {
+     var Arr : [bag.D] int;
+     for i in bag.D do
+       Arr[i] = bag.A[i];
+
+     return Arr;
    }
 
    proc assocToArr(d:[?T] int) {
@@ -106,27 +123,27 @@ record DecisionNode {
             isleaf = true;
             Label = labels(sampleIndices(startIdx));
             return -1;
-         }    
+         }
       }
 
       const numFeatures = features.domain.high(2)+1;
       const numFeaturesToAssess = ceil((numFeatures:real ** 0.5)):int;
       var featureIndices : [0..numFeaturesToAssess-1] int;
       var buffer : [0..numFeatures-1] int;
-      sampleSubsetWithoutReplacement(numFeatures, 
+      sampleSubsetWithoutReplacement(numFeatures,
            numFeaturesToAssess,
            featureIndices,
            buffer
       );
 
-      var noldom : domain(int);
-      type bag = [noldom] int;
-      var numberOfLabels : [0..1] bag;
+      var numberOfLabels : [0..1] Bag;
+      for numLabel in numberOfLabels do
+        numLabel = new Bag();
 
       var optsumgini = INFINITY;
-      var optfeatureidx :int;
-      var optthresholdidx:int;
-      var optthreshold:FEATURE;
+      var optfeatureidx : int;
+      var optthresholdidx : int;
+      var optthreshold : FEATURE;
 
       for fij in 0..numFeaturesToAssess-1 {
          const fi = if featureIndices(fij) == 0 then featureIndices(fij)+1 else featureIndices(fij);
@@ -138,13 +155,13 @@ record DecisionNode {
 
          for k in startIdx..endIdx-1 {
             const lbl = labels(sampleIndices(k));
-            if !numberOfLabels(1).domain.member(lbl) {
-               numberOfLabels(0).domain += lbl;
-               numberOfLabels(1).domain += lbl;
+            if !numberOfLabels(1).D.member(lbl) {
+               numberOfLabels(0)(lbl) = 0;
+               numberOfLabels(1)(lbl) = 0;
             }
             numberOfLabels(1)(lbl)+=1;
          }
-        
+
          var thresholdIdx = startIdx;
          while true {
             const thresholdOld = thresholdIdx;
@@ -152,13 +169,13 @@ record DecisionNode {
                const lbl = labels(sampleIndices(thresholdIdx));
                numberOfElements(0)+=1;
                numberOfElements(1)-=1;
-               if !numberOfLabels(0).domain.member(lbl) {
-                  numberOfLabels(0).domain += lbl;
+               if !numberOfLabels(0).D.member(lbl) {
+                  numberOfLabels(0)(lbl) = 0;
                }
                numberOfLabels(0)(lbl)+=1;
 
-               if !numberOfLabels(1).domain.member(lbl) {
-                  numberOfLabels(1).domain += lbl;
+               if !numberOfLabels(1).D.member(lbl) {
+                  numberOfLabels(1)(lbl) = 0;
                }
                numberOfLabels(1)(lbl)-=1;
                thresholdIdx+=1;
@@ -168,44 +185,35 @@ record DecisionNode {
                const labl = labels(sampleIndices(thresholdIdx));
                numberOfElements(0)+=1;
                numberOfElements(1)-=1;
-               if !numberOfLabels(0).domain.member(labl) {
-                  numberOfLabels(0).domain += labl;
+               if !numberOfLabels(0).D.member(labl) {
+                  numberOfLabels(0)(labl) = 0;
                }
                numberOfLabels(0)(labl)+=1;
 
-               if !numberOfLabels(1).domain.member(labl) {
-                  numberOfLabels(1).domain += labl;
+               if !numberOfLabels(1).D.member(labl) {
+                  numberOfLabels(1)(labl) = 0;
                }
                numberOfLabels(1)(labl)-=1;
             }
 
             thresholdIdx+=1;
-            if thresholdIdx == endIdx { 
+            if thresholdIdx == endIdx {
                break;
             }
 
             var numbersOfDistinctPairs : [0..1] int;
+
             for s in 0..1 {
-               /*const kcpy = numberOfLabels(s).domain;
-               var mcpy = numberOfLabels(s).domain;
-               for k in kcpy {
-                  mcpy-=k;
-                  for m in mcpy {
-                     numbersOfDistinctPairs(s) += (numberOfLabels(s)(k) * numberOfLabels(s)(m));
-                  }
-               }*/
-               const arr = assocToArr(numberOfLabels(s));
-               for k in 0..arr.size-1 {
-                  for m in k+1..arr.size-1 {
-                     numbersOfDistinctPairs(s) += (arr(k) * arr(m));
-                  }
-               }
+              const arr = bagToArr(numberOfLabels(s));
+              for k in 0..arr.size-1 do
+                 for m in k+1..arr.size-1 do
+                    numbersOfDistinctPairs(s) += (arr(k) * arr(m));
             }
 
             var ginicoefs : [0..1] real;
-            for s in 0..1 {
-               ginicoefs(s) = if numberOfElements(s) < 2 then 0.0 else (numbersOfDistinctPairs(s):real / (numberOfElements(s) * (numberOfElements(s) - 1):real));
-            }
+
+            for s in 0..1 do
+              ginicoefs(s) = if numberOfElements(s) < 2 then 0.0 else (numbersOfDistinctPairs(s):real / (numberOfElements(s) * (numberOfElements(s) - 1):real));
 
             const ginisum = ginicoefs(0) + ginicoefs(1);
             if ginisum < optsumgini {
@@ -216,13 +224,11 @@ record DecisionNode {
             }
          }
 
-         for s in 0..1 {
-            for k in numberOfLabels[s].domain {
-               numberOfLabels[s][k] = 0;
-            }
-         }
+         for s in 0..1 do
+            for k in numberOfLabels(s).D do
+               numberOfLabels(s)[k] = 0;
       }
- 
+
       threshold = optthreshold;
       featureIndex = optfeatureidx;
 
@@ -241,7 +247,7 @@ record DecisionNode {
             const idx = randomInt(dom);
             indices(j) = candidates(idx);
             candidates(idx) = candidates(sz-j-1);
-         } 
+         }
       }
    }
 }
@@ -273,7 +279,7 @@ record DecisionTree {
 
    proc queueAt(q:list(?T), i:int) {
       for (j, v) in zip(0..q.length-1, q) {
-         if j == i { return v; } 
+         if j == i { return v; }
       }
       var t : T;
       return t;
@@ -309,10 +315,10 @@ record DecisionTree {
          decisionNodes.push_back(ndn);
 
          decisionNodes(ni).childNodeIndices(0) = nodeIdxNew;
-         if !decisionNodes(nodeIdxNew).isLeaf() { 
+         if !decisionNodes(nodeIdxNew).isLeaf() {
             var tcq = new TreeConstructionQueueEntry(nodeIdxNew, sib, ti, thresholdIdxNew);
             queue.append(tcq);
-         } 
+         }
 
          nodeIdxNew = decisionNodes.size;
          ndn = new DecisionNode(FEATURE, LABEL);
@@ -320,7 +326,7 @@ record DecisionTree {
          decisionNodes.push_back(ndn);
 
          decisionNodes(ni).childNodeIndices(1) = nodeIdxNew;
-         if !decisionNodes(nodeIdxNew).isLeaf() { 
+         if !decisionNodes(nodeIdxNew).isLeaf() {
             var tcq = new TreeConstructionQueueEntry(nodeIdxNew, ti, sie, thresholdIdxNew);
             queue.append(tcq);
          }
@@ -357,9 +363,9 @@ record DecisionForest {
    type FEATURE;
    type LABEL;
    type PROBABILITY;
-   
+
    var dtdom = {0..0};
-   var decisionTrees : [dtdom] DecisionTree(FEATURE, LABEL); 
+   var decisionTrees : [dtdom] DecisionTree(FEATURE, LABEL);
 
    proc DecisionForest(type FEATURE, type LABEL, type PROBABILITY) {
    }
@@ -376,11 +382,11 @@ record DecisionForest {
       const numberOfSamples = features.domain.high(1);
       const numberOfDecisionTrees = sz;
       clear();
-      dtdom = {0..numberOfDecisionTrees-1}; 
-      const samplesDom = {1..numberOfSamples};
+      dtdom = {0..numberOfDecisionTrees-1};
       forall treeIdx in dtdom {
+         var samplesDom = {1..numberOfSamples};
          var sampleIndices : [samplesDom] int;
-         sampleBootstrap(numberOfSamples, sampleIndices); // uses atomic in this method
+         sampleBootstrap(numberOfSamples, sampleIndices, samplesDom); // uses atomic in this method
          decisionTrees(treeIdx).learn(features, lbls, sampleIndices);
       }
    }
@@ -408,13 +414,12 @@ record DecisionForest {
       }
    }
 
-   proc sampleBootstrap(sz:int, idx:[]int) {
-      idx.domain = {idx.domain.low..idx.domain.low+sz};
+   proc sampleBootstrap(sz:int, ref idx:[]int, ref D:domain(1)) {
+     D = {D.low..D.low + sz};
       // critical section
       sync {
-         for j in idx.domain {
-            idx[j] = randomInt(idx.domain);
-         }
+         for j in D do
+            idx[j] = randomInt(D);
       }
    }
 }
@@ -454,7 +459,7 @@ writeln(t.elapsed());
    //decisionForest.predict(features, probs);
 
    writeln(probs);
-   
+
 }
 */
 
